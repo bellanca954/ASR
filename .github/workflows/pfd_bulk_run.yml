@@ -1,0 +1,88 @@
+name: PFD bulk run
+
+on:
+  push:
+    paths:
+      - 'scripts/build_pfd_universe.py'
+      - '.github/workflows/pfd_bulk_run.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download frozen-source bulk CSV
+        run: |
+          mkdir -p output
+          curl -L --fail --retry 3 \
+            'https://raw.githubusercontent.com/georgiarichards/preventabledeathstracker/refs/heads/main/src/data/reports.csv' \
+            -o output/reports.csv
+          sha256sum output/reports.csv | tee output/reports_sha256.txt
+          wc -c output/reports.csv | tee output/reports_bytes.txt
+
+      - name: Run frozen protocol
+        run: |
+          python scripts/build_pfd_universe.py output/reports.csv | tee output/run_stdout.txt
+
+      - name: Validate source coverage
+        run: |
+          python - <<'PY'
+          import csv, json
+          from datetime import datetime
+          from pathlib import Path
+
+          p = Path('output/reports.csv')
+          def parse(s):
+              s=(s or '').strip()
+              for f in ('%d/%m/%Y','%d/%m/%y','%Y-%m-%d'):
+                  try: return datetime.strptime(s,f)
+                  except ValueError: pass
+              return None
+          with p.open(encoding='utf-8-sig', newline='') as f:
+              rows=list(csv.DictReader(f))
+          years={2023:0,2024:0}
+          refs={2023:set(),2024:set()}
+          for r in rows:
+              d=parse(r.get('date_of_report'))
+              if d and d.year in years:
+                  years[d.year]+=1
+                  refs[d.year].add((r.get('ref') or '').strip())
+          expected={2023:569,2024:713}
+          report={
+              'row_counts_by_report_year': years,
+              'unique_ref_counts_by_report_year': {k:len(v-{''}) for k,v in refs.items()},
+              'official_expected_counts': expected,
+              'row_count_matches_official': {str(k): years[k]==expected[k] for k in years},
+              'source_complete_for_frozen_universe': all(years[k]==expected[k] for k in years),
+          }
+          Path('output/source_coverage_validation.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
+          print(json.dumps(report,indent=2))
+          PY
+
+      - name: Create manifest
+        run: |
+          python - <<'PY'
+          import json, hashlib
+          from pathlib import Path
+          out=Path('output')
+          files=[]
+          for p in sorted(out.iterdir()):
+              if p.is_file():
+                  h=hashlib.sha256(p.read_bytes()).hexdigest()
+                  files.append({'name':p.name,'bytes':p.stat().st_size,'sha256':h})
+          manifest={'protocol_seed':20260916,'files':files}
+          (out/'artifact_manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
+          PY
+
+      - name: Upload run artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pfd-meta-repair-run-20260916
+          path: output/
+          if-no-files-found: error
+          retention-days: 30
