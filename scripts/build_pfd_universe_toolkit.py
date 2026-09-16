@@ -6,7 +6,7 @@ Only the SOURCE ADAPTER differs from scripts/build_pfd_universe.py:
 - ref <- id
 - recipient <- receiver
 - health/care high-recall prefilter <- original recipient dictionary OR selected
-  PFD Toolkit health/care theme flags.
+  health/care SETTING flags from PFD Toolkit.
 
 The Stage-A retrieval dictionary, anti-leakage rule, seed (20260916), and
 R=0 sample target (100) are unchanged.
@@ -39,25 +39,20 @@ HEALTH_CARE_TERMS = [
     "mental health", "maternity", "midwif", "healthcare", "health care",
 ]
 
-# Source-adapter equivalent of the original broad health/care category prefilter.
+# Source-adapter equivalent of official health/care category membership.
+# Restrict this list to setting-/provider-specific health and social-care flags.
+# Generic failure themes (communication, policy, investigation, staffing, etc.)
+# are deliberately excluded because they occur across non-health domains.
 HEALTH_THEME_COLUMNS = [
     "theme_sent_to_nhs_bodies",
     "theme_sent_to_health_regulators",
     "theme_access_to_care",
     "theme_ambulance_response",
     "theme_care_home_safety",
-    "theme_discharge_planning",
     "theme_hospital_care",
-    "theme_infection_control",
     "theme_medication_safety",
     "theme_mental_health_care",
-    "theme_observation_failures",
     "theme_physical_health_in_mental_health",
-    "theme_record_keeping",
-    "theme_safeguarding",
-    "theme_staff_shortages",
-    "theme_staff_training",
-    "theme_substance_misuse",
     "theme_emergency_departments",
     "theme_ambulance_services",
     "theme_primary_care",
@@ -72,48 +67,6 @@ HEALTH_THEME_COLUMNS = [
     "theme_domiciliary_care",
     "theme_hospices_palliative_care",
     "theme_secure_health_settings",
-    "theme_diagnostic_delay",
-    "theme_sepsis_infection",
-    "theme_cancer_care",
-    "theme_cardiovascular_conditions",
-    "theme_respiratory_conditions",
-    "theme_neurological_conditions",
-    "theme_diabetes_metabolic_conditions",
-    "theme_falls_frailty",
-    "theme_choking_aspiration",
-    "theme_learning_disability",
-    "theme_autism",
-    "theme_cognitive_impairment",
-    "theme_epilepsy_seizure_management",
-    "theme_allergy_anaphylaxis",
-    "theme_risk_assessment_failures",
-    "theme_failure_recognise_escalate_deterioration",
-    "theme_communication_failures",
-    "theme_handover_failures",
-    "theme_record_sharing_failures",
-    "theme_referral_failures",
-    "theme_follow_up_failures",
-    "theme_transitions_discharge_failures",
-    "theme_observation_monitoring_failures",
-    "theme_test_result_management_failures",
-    "theme_capacity_best_interests_failures",
-    "theme_staffing_shortages_workload_pressure",
-    "theme_training_competence_gaps",
-    "theme_policy_procedure_failures",
-    "theme_equipment_failures",
-    "theme_it_digital_system_failures",
-    "theme_alarm_alert_failures",
-    "theme_delayed_admission",
-    "theme_bed_shortages",
-    "theme_safeguarding_failures",
-    "theme_inter_agency_working",
-    "theme_continuity_of_care",
-    "theme_family_carer_concerns_not_acted_on",
-    "theme_reasonable_adjustments_not_made",
-    "theme_investigation_incident_review_failures",
-    "theme_failure_learn_previous_deaths_incidents",
-    "theme_thresholds_eligibility_barriers",
-    "theme_waiting_times_delays",
 ]
 
 def norm(x):
@@ -206,6 +159,7 @@ def main(input_path):
         "sample_target":R0_SAMPLE_N,
         "retrieval_dictionary_changed":False,
         "source_adapter_changed":True,
+        "generic_cross-domain_themes_excluded":True,
     }
     (outdir/"pfd_retrieval_counts.json").write_text(json.dumps(counts,indent=2),encoding="utf-8")
     print(json.dumps(counts,indent=2))
