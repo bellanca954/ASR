@@ -1,0 +1,83 @@
+name: PFD Toolkit frozen-protocol run
+
+on:
+  push:
+    paths:
+      - 'scripts/build_pfd_universe_toolkit.py'
+      - '.github/workflows/pfd_toolkit_run.yml'
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download PFD Toolkit dataset
+        run: |
+          mkdir -p output
+          curl -L --fail --retry 3 \
+            'https://github.com/Sam-Osian/PFD-toolkit/releases/download/dataset-latest/all_reports.csv' \
+            -o output/all_reports.csv
+          sha256sum output/all_reports.csv | tee output/all_reports_sha256.txt
+          wc -c output/all_reports.csv | tee output/all_reports_bytes.txt
+
+      - name: Run frozen retrieval protocol through source adapter
+        run: |
+          python scripts/build_pfd_universe_toolkit.py output/all_reports.csv | tee output/run_stdout.txt
+
+      - name: Validate period coverage and required fields
+        run: |
+          python - <<'PY'
+          import csv,json
+          from collections import Counter
+          from datetime import datetime
+          from pathlib import Path
+          p=Path('output/all_reports.csv')
+          counts=Counter(); missing=Counter(); unique=Counter(); seen={2023:set(),2024:set()}
+          with p.open(encoding='utf-8-sig',newline='') as f:
+              rd=csv.DictReader(f); fields=rd.fieldnames or []
+              for r in rd:
+                  try:d=datetime.strptime((r.get('date') or '')[:10],'%Y-%m-%d')
+                  except ValueError:continue
+                  if d.year not in (2023,2024):continue
+                  counts[d.year]+=1
+                  ident=(r.get('url') or r.get('id') or '').strip()
+                  if ident: seen[d.year].add(ident)
+                  for k in ('date','id','receiver','circumstances','concerns','url'):
+                      if not (r.get(k) or '').strip(): missing[k]+=1
+          report={
+              'counts_by_report_date_year':dict(counts),
+              'unique_identifier_counts':{str(k):len(v) for k,v in seen.items()},
+              'missing_required_fields_within_period':dict(missing),
+              'required_columns_present':{k:k in fields for k in ('date','id','receiver','circumstances','concerns','url')},
+              'official_annual_counts_for_reference_only':{'2023':569,'2024':713},
+              'note':'Official annual counts are retained as external reference and are not assumed identical to report-date counts.'
+          }
+          Path('output/source_validation.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
+          print(json.dumps(report,indent=2))
+          PY
+
+      - name: Create artifact manifest
+        run: |
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          out=Path('output'); items=[]
+          for p in sorted(out.iterdir()):
+              if p.is_file() and p.name!='all_reports.csv':
+                  items.append({'name':p.name,'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()})
+          (out/'artifact_manifest.json').write_text(json.dumps({'protocol_seed':20260916,'items':items},indent=2),encoding='utf-8')
+          PY
+
+      - name: Remove large source file before artifact upload
+        run: rm output/all_reports.csv
+
+      - name: Upload production artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pfd-toolkit-frozen-protocol-run
+          path: output/
+          retention-days: 30
+          if-no-files-found: error
