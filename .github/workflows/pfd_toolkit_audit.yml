@@ -1,0 +1,89 @@
+name: PFD Toolkit dataset audit
+
+on:
+  push:
+    paths:
+      - '.github/workflows/pfd_toolkit_audit.yml'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download PFD Toolkit dataset
+        run: |
+          mkdir -p audit
+          curl -L --fail --retry 3 \
+            'https://github.com/Sam-Osian/PFD-toolkit/releases/download/dataset-latest/all_reports.csv' \
+            -o audit/all_reports.csv
+          sha256sum audit/all_reports.csv > audit/all_reports_sha256.txt
+          wc -c audit/all_reports.csv > audit/all_reports_bytes.txt
+
+      - name: Audit schema and 2023-2024 coverage
+        run: |
+          python - <<'PY'
+          import csv, json
+          from collections import Counter
+          from pathlib import Path
+          from datetime import datetime
+
+          p=Path('audit/all_reports.csv')
+          with p.open(encoding='utf-8-sig', newline='') as f:
+              reader=csv.DictReader(f)
+              fields=reader.fieldnames or []
+              rows=[]
+              counts=Counter()
+              nonempty=Counter()
+              sample=[]
+              for r in reader:
+                  rows.append(r)
+                  raw=(r.get('date') or r.get('date_of_report') or '').strip()
+                  d=None
+                  for fmt in ('%Y-%m-%d','%d/%m/%Y','%d/%m/%y'):
+                      try:
+                          d=datetime.strptime(raw[:10],fmt)
+                          break
+                      except ValueError:
+                          pass
+                  if d and d.year in (2023,2024):
+                      counts[d.year]+=1
+                      if len(sample)<5:
+                          sample.append({k:r.get(k) for k in fields[:20]})
+                  for k,v in r.items():
+                      if (v or '').strip(): nonempty[k]+=1
+          lower={x.lower():x for x in fields}
+          candidates={
+              'date':[x for x in fields if 'date' in x.lower()],
+              'reference':[x for x in fields if x.lower() in ('ref','reference','report_id','id') or 'reference' in x.lower()],
+              'recipient':[x for x in fields if 'recipient' in x.lower() or 'receiver' in x.lower() or 'sent_to' in x.lower()],
+              'category':[x for x in fields if 'category' in x.lower() or 'theme' in x.lower()],
+              'circumstances':[x for x in fields if 'circum' in x.lower()],
+              'concerns':[x for x in fields if 'concern' in x.lower()],
+              'report_url':[x for x in fields if 'url' in x.lower() and ('report' in x.lower() or x.lower()=='url')],
+          }
+          report={
+              'rows_total':len(rows),
+              'columns':fields,
+              'column_count':len(fields),
+              'counts_by_date_year':dict(counts),
+              'official_expected_counts':{'2023':569,'2024':713},
+              'candidate_columns':candidates,
+              'nonempty_counts_selected':{k:nonempty[k] for group in candidates.values() for k in group},
+          }
+          Path('audit/audit.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
+          Path('audit/sample_2023_2024.json').write_text(json.dumps(sample,indent=2),encoding='utf-8')
+          Path('audit/header.txt').write_text(','.join(fields),encoding='utf-8')
+          print(json.dumps(report,indent=2))
+          PY
+
+      - name: Upload audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pfd-toolkit-dataset-audit
+          path: |
+            audit/audit.json
+            audit/sample_2023_2024.json
+            audit/header.txt
+            audit/all_reports_sha256.txt
+            audit/all_reports_bytes.txt
+          retention-days: 30
